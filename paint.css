@@ -1,0 +1,13 @@
+*{
+    box-sizing: border-box;
+}
+
+.pixel{
+	width: 3px;
+	height: 3px;
+}
+#drawing-area{
+	margin: auto;
+	border: solid;
+	display: grid;    
+}

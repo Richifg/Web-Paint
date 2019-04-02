@@ -1,0 +1,24 @@
+  
+<head>        
+    <link rel="stylesheet" type="text/css" href="paint.css">
+</head>
+
+
+<body >
+    <label for="pen">
+        <input id="pen" type="radio" name="tool" value="pen" checked="checked">Pen
+    </label>
+    <label for="line">
+        <input type="radio" name="tool" value="line">Line
+    </label>
+    <button type="button" id="undo" onclick="undo()" disabled>Undo</button>
+    <button type="button" id="redo" onclick="redo()" disabled>Redo</button>
+    
+    <div id="drawing-area" ondrag="fase"> </div>
+    <div id="coordinates-container">
+        <p id="coordinates">X:_ Y:_</p>
+    </div>
+</body>
+<script src="paint.js"></script>
+
+
