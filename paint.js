@@ -1,48 +1,210 @@
 "use strict";
-// x and y coordinates of the cursor on the drawing area
-let x, y; 
 // size of the drawing area and size of "pixel" divs
 const [xMax, yMax, pixelSize] = [175, 175, 3];
 
-const undoStack = [];
-const redoStack = [];
+// works as a state machine using mouse events as inputs
+// interacts with all the other managers
+const eventManager = {
+    // pen is the selected tool by default
+    state: "pen",        
+    
+    // keeps track of current tool which can differ from current state
+    tool: "pen",
+    
+    // resizing requires to keep track of which point is being edited
+    point2edit: "start",
+    
+    // processes mouse events from the drawing-area div
+    processDrawingAreaEvent: function(event){                                     
+        // check who was the source of the event
+        const source = event.srcElement;
+        
+        // update coordinates 
+        const [x, y] = coordinatesManager.updateCoordinates(source);
+                
+        const em = eventManager;
+        switch (em.state) {                
+            // paint state is only affected by mousedown events
+            case "paint":                
+                if (event.state === "mousedown") { 
+                    drawingManager.drawPaint();
+                    undoRedoManager.addUndo(drawingManager.pastColors);
+                }
+                break;
+                
+            // pen state requires careful order of actions due to "cursor jumps"
+            case "pen":
+                switch (event.type) { 
+                    case "mousedown":
+                        drawingManager.start = [x, y];
+                        drawingManager.drawPen([x, y]);
+                        break;
+                    case "mousemove":
+                        if (event.buttons >= 1) {
+                            drawingManager.drawPen([x, y]);
+                            drawingManager.start = [x, y];                            
+                        }
+                        break;
+                    case "mouseup":
+                        drawingManager.drawPen([x, y]);
+                        undoRedoManager.addUndo(drawingManager.pastColors);
+                        break;
+                }
+                break;
+                                
+            // figure state can transition into resize events depending on source of mouse event
+            case "figure":                                
+                switch (event.type) { 
+                    case "mousedown":
+                        // check if event was sourced from a "resize-box-start/end" div
+                        const startOrEnd = source.className.split("-")[2];
+                        if (startOrEnd) {
+                            em.point2edit = startOrEnd;
+                            em.state = "resize";
+                        } else {
+                            resizeBoxManager.deleteBoxes();
+                            drawingManager.pastColors = [];
+                            drawingManager.start = [x, y];
+                        }
+                        break;
+                    case "mousemove":
+                        if (event.buttons >= 1) {
+                            drawingManager.drawFigure([x, y], true, em.tool);
+                        }
+                        break;
+                    case "mouseup":
+                        resizeBoxManager.createBoxes(drawingManager.start, "start");
+                        resizeBoxManager.createBoxes(drawingManager.end, "end");
+                        break;
+                }
+                break;
+                
+            // no mouse down for resize state because mouse up takes it back to figure state
+            case "resize":
+                switch (event.type) {
+                    case "mousemove":
+                        if (event.buttons >= 1) {
+                            drawingManager.drawFigure([x, y], true, em.tool, em.point2edit);
+                            resizeBoxManager.moveBoxes(em.point2edit)
+                        }
+                        break;
+                    case "mouseup":
+                        em.state = "figure";
+                        undoRedoManager.addUndo(drawingManager.pastColors);
+                        break;
+                }
+                break;
+        }
+        event.stopPropagation();
+    },
+    
+    // process event related to the tool inputs
+    processToolEvent: function(event){  
+        // check if selected tool changed
+        const currentTool = document.querySelector("input[name=tool]:checked").value;        
+        if (currentTool !== this.tool) { 
+            // leaving a figure/resize event due to tool change requires some cleanup
+            if (this.state === "figure" || this.state === "resize") {
+                resizeBoxManager.deleteBoxes();
+                drawingManager.pastColors = [];
+            }
+            
+            // circle line and square all trigger the figure state
+            const newState = currentTool == "paint" || currentTool == "pen" ? currentTool : "figure"
+            this.state = newState;
+            this.tool = currentTool;
+        } 
+    },
+};
+
+// holds and updates the coordinates of the cursor on the drawing area
+const coordinatesManager = {
+    // current coordinates of cursor
+    coordinates: [0, 0],
+    
+    updateCoordinates: function(object) {
+        // find the pixel that made the function called
+        // currently only the resize boxes within pixels can also make the call
+        const pixel = object.className == "pixel" ? object : object.parentElement;    
+
+        // get  coordinates from pixel name
+        var split = pixel.id.split("_");
+        this.coordinates[0] = parseInt(split[0].substr(1));
+        this.coordinates[1] = parseInt(split[1]);
+        
+        // update the coordinates legend as well
+        document.getElementById("coordinates").innerHTML = 
+            "X: " + this.coordinates[0] + 
+            " Y: " + this.coordinates[1];
+        return this.coordinates;
+    }
+};
+
+// manages all the drawings done by the tools (pen, line, circle, paint, etc..)
 const drawingManager = {
-    // state of the current drawing
-    state: "",
     
     // start and end coordinates of the current drawing
-    start : [0, 0],
-    end : [0, 0],
-    
-    // list of coodinates of every pixel on the drawing
-    coordinates: [],
+    start: [0, 0],
+    end: [0, 0],
     
     // list of [coodinates, color] of pixels that were recently edited
     pastColors: [],
     
-    // drawing functions
-    drawFigure : function(){
-        this.pastColors = [];
-        for (let i = 0; i < this.coordinates.length; i++) {
-            let [x, y] = [this.coordinates[i][0], this.coordinates[i][1]]; 
+    // tool functions
+    drawPaint: function(coordinates){},   
+    
+    drawPen: function (coordinates){        
+        // check if cursor jump from one pixel to another far pixel
+        if (Math.abs(this.start[0] - coordinates[0]) > 1 || 
+            Math.abs(this.start[1] - coordinates[1]) > 1) {            
+            //draw a line interpolating the probable trajectory of the cursor
+            this.drawFigure(coordinates);
+            
+        } else {            
+            // get the new pixel to color
+            const pixel = document.getElementById("P" + coordinates[0] + "_" + coordinates[1]);
+            if (pixel) {            
+                this.pastColors.push([coordinates, pixel.style.backgroundColor]);
+                pixel.style.backgroundColor = "black";
+                this.end = [...coordinates];
+            }
+        }
+    },   
+    
+    drawFigure: function(lastCoordinates, isRedraw = false, tool = "line", position = "end"){
+        // if redrawing then have to clean past drawing
+        if (isRedraw) {
+            this.drawUndo();
+            this.pastColors = [];
+        }
+                
+        // update the last coordinate of the new figure
+        this[position] = [...lastCoordinates];
+        
+        // calculate all the coordinates of the new figure
+        let coordinates = []
+        switch (tool) {
+            case "line":
+                coordinates = this.getLineCoordinates();
+                break;
+            case "square":
+                coordinates = this.getSquareCoordinates();
+                break;
+            case "circle":
+                coordinates = this.getCircleCoordinates();
+        }
+        
+        // color each coordinate
+         for (let i = 0; i < coordinates.length; i++) {
+            let [x, y] = [coordinates[i][0], coordinates[i][1]]; 
             let pixel = document.getElementById("P" + x + "_" + y);
             this.pastColors.push([[x, y], pixel.style.backgroundColor])
             pixel.style.backgroundColor = "black";
-        }
-        document.getElementById("undo").removeAttribute("disabled");
-    },    
-    drawPen : function (){
-        for (let i = 0; i < this.coordinates.length; i++) {
-            let [x, y] = [this.coordinates[i][0], this.coordinates[i][1]]; 
-            let pixel = document.getElementById("P" + x + "_" + y);
-            if (pixel.style.backgroundColor !== "black") {
-                this.pastColors.push([[x, y], pixel.style.backgroundColor])
-                pixel.style.backgroundColor = "black";
-            }
-        }
-        document.getElementById("undo").removeAttribute("disabled");
-    },    
-    undo : function (){
+        }            
+    },  
+    
+    drawUndo: function() {
+        // restore each pixel to its former glory!
         for (let i = 0; i < this.pastColors.length; i++) {
             let [x, y] = [this.pastColors[i][0][0], this.pastColors[i][0][1]];
             let pixel = document.getElementById("P" + x + "_" + y);
@@ -50,87 +212,8 @@ const drawingManager = {
         }
     },
     
-    // event functions
-    processLine: function(event, resizePoint) {
-        switch (event.type) {
-            case "mousedown" :                
-                // update current state
-                this.state = !resizePoint ? "drawing" : 
-                                resizePoint === "start" ? "resizing-start" : "resizing-end"; 
-                if(this.state === "drawing") {
-                    // begin a new line                    
-                    this.pastColors = [];
-                    this.start = [x, y];
-                    this.end = [x, y];
-                    
-                    // clean resize boxes if there are any
-                    if (resizeBoxManager.startBoxes.length) {resizeBoxManager.deleteBoxes();}
-                }            
-                break;            
-            case "mousemove":
-                if (event.buttons == 1) {
-                    // determine which is the new coordinate (end by default)
-                    let point2edit = this.state === "resizing-start" ? "start" : "end";
-
-                    // recalculate line
-                    this[point2edit] = [x, y];
-                    this.coordinates = this.getLineCoords();
-                    this.undo();
-                    this.drawFigure();
-                    
-                    //move boxes if currently rezising
-                    if (this.state !== "drawing") {resizeBoxManager.moveBoxes(point2edit);}                    
-                }
-                break;
-            case "mouseup":
-                // determine which is the last coordinate (end by default)
-                let point2edit = this.state === "resizing-start" ? "start" : "end";                            
-
-                // draw final version and save edited pixels
-                this[point2edit] = [x, y];
-                this.coordinates = this.getLineCoords();
-                //this.undo();
-                //this.drawFigure();
-                undoStack.push(this.pastColors);
-
-                // create resize boxes at start/end points if finished drawing
-                if (this.state === "drawing") {
-                    resizeBoxManager.createBoxes(this.start, "start");
-                    resizeBoxManager.createBoxes(this.end, "end");
-                }
-                
-                // clean state
-                this.state = ""; break;    
-        }
-    },    
-    processPen: function(event) {
-        switch (event.type) {
-            case "mousedown":
-                this.pastColors = [];
-                this.coordinates.push([x, y]);
-                this.start = [x, y];
-                break;
-            case "mousemove":            
-                if (event.buttons == 1) {
-                    this.end = [x, y]    
-                    // check if cursor moved so fast that it jumped from one pixel to another skipping some pixels on its way
-                    if (Math.abs((this.start[0] - this.end[0])) > 1 ||
-                            Math.abs(this.start[1] - this.end[1]) > 1) {
-                        this.coordinates = this.coordinates.concat(this.getLineCoords());
-                    } else {this.coordinates.push([x, y]);}
-                    this.drawPen();
-                    this.start = [x, y];
-                }
-                break;
-            case "mouseup":
-                this.coordinates = [];
-                undoStack.push(this.pastColors);
-                break;
-        }
-},
-    
-    //geometry functions
-    getLineCoords: function() {        
+    // geometry function
+    getLineCoordinates: function() {        
         const [start, end] = [this.start, this.end]
               
         // if called with same start/end then just return
@@ -159,8 +242,10 @@ const drawingManager = {
         return lineCoords;
     },
 };
+
+// creates, holds and cleans the resize boxes at the start/end of figures
 const resizeBoxManager = {
-    // relative coordinates of which pixel should have resize boxes at around start and end points
+    // relative coordinates of which pixels should have resize boxes near start/end points of figures
      coordinateMods : [[0, 0],
                        [0, -1],
                        [1, -1],
@@ -171,7 +256,7 @@ const resizeBoxManager = {
                        [-1, 0],
                        [-1, -1]],
     // borders that should be drawn for each of the resize boxes to make them look like a single square
-     borderMods : [[], // first resize box is the center which has no border
+     borderMods : [[], // first resize box is the center so  no border
                    ["top"],
                    ["top", "right"],
                    ["right"],
@@ -197,12 +282,13 @@ const resizeBoxManager = {
             
             // pixel might not exist if near the edge of the drawing area
             if (pixel) {
-                // create box, set its style (border and size) and append it to pixel
-                const resizeBox = document.createElement("div");
-                resizeBox.className = "resize-box-" + point;
+                // create box, set its style (border and size) and append it to pixel                
                 let style = manager.borderMods[i].reduce( 
                     (sum,current) => sum += "border-" + current + ": dotted blue 1px;","");
                 style += "width: " + pixelSize + "px;" + "height: " + pixelSize + "px;";
+                const resizeBox = document.createElement("div");
+                resizeBox.ondragstart = () => false;
+                resizeBox.className = "resize-box-" + point;
                 resizeBox.setAttribute("style", style);
                 pixel.appendChild(resizeBox);
                 
@@ -243,89 +329,65 @@ const resizeBoxManager = {
     }
 };
 
-function processDrawingAreaMouseEvent(event){    
-    const source = event.srcElement;
-    updateCoordinates(source);
-    switch (source.className) {     
-        case "pixel":            
-            switch (document.querySelector('input[name="tool"]:checked').value) {
-                case "pen":
-                    drawingManager.processPen(event);
-                    break;
-                case "line":
-                    drawingManager.processLine(event);
-                    break;
-            }
-            break;
-        case "resize-box-start":
-            drawingManager.processLine(event, "start");
-            break;
-        case "resize-obx-end":
-            drawingManager.processLine(event, "end");
-            break;
-    }
-}
-
-function updateCoordinates(object) {
-    // find the pixel that made the function called
-    const pixel = object.className == "pixel" ? object : object.parentElement;    
-    
-    // get  coordinates from pixel name
-    var split = pixel.id.split("_");
-    x = parseInt(split[0].substr(1));
-    y = parseInt(split[1]);
-    document.getElementById("coordinates").innerHTML = "X: " + x + " Y: " + y;
-}
-
-function undo() {
-    if (undoStack.length) {
-        let redoItem = [];
-        let pastColors = undoStack.pop();
-        // revert every pixel to its previous color
-        for (let i = 0; i < pastColors.length; i ++){
-            let [x, y] = [pastColors[i][0][0], pastColors[i][0][1]];
-            let pixel = document.getElementById("P" + x + "_" + y);
-            redoItem[i] = [[x, y], pixel.style.backgroundColor];
-            pixel.style.backgroundColor = pastColors[i][1];
-        }
-        // add to redo stack the item that was just undoed
-        redoStack.push(redoItem);
-        document.getElementById("redo").removeAttribute("disabled");
-    }
-    // disable undo button if undo stack is empty
-    if (!undoStack.length) {document.getElementById("undo").setAttribute("disabled","")}
-    
-    // remove resize boxes if there are any
-    if (resizeBoxManager.startBoxes.length) {
-        resizeBoxManager.deleteBoxes();
-    }
-}
-
-function redo(){
-    if (redoStack.length) {
-        let undoItem = [];
-        let pastColors = redoStack.pop();
-        // revert every pixel to its previous color
-        for (let i = 0; i < pastColors.length; i ++) {
-            let [x, y] = [pastColors[i][0][0], pastColors[i][0][1]];
-            let pixel = document.getElementById("P" + x + "_" + y);
-            undoItem.push([[x, y], pixel.style.backgroundColor]);
-            pixel.style.backgroundColor = pastColors[i][1];
-        }
-        // add to undo stack the item that was redoed
-        undoStack.push(undoItem);
+// nothing yet
+const undoRedoManager = {
+    undoStack: [],
+    redoStack: [],
+    addUndo: function(item) {
+        this.undoStack.push(item);
         document.getElementById("undo").removeAttribute("disabled");
-    }
-    // disable redo button if redo stack is empty
-    if (!redoStack.length) {document.getElementById("redo").setAttribute("disabled","");}
-}
+        
+    },
+    undo: function() {
+        if (undoStack.length) {
+            let redoItem = [];
+            let pastColors = undoStack.pop();
+            // revert every pixel to its previous color
+            for (let i = 0; i < pastColors.length; i ++){
+                let [x, y] = [pastColors[i][0][0], pastColors[i][0][1]];
+                let pixel = document.getElementById("P" + x + "_" + y);
+                redoItem[i] = [[x, y], pixel.style.backgroundColor];
+                pixel.style.backgroundColor = pastColors[i][1];
+            }
+            // add to redo stack the item that was just undoed
+            redoStack.push(redoItem);
+            document.getElementById("redo").removeAttribute("disabled");
+        }
+        // disable undo button if undo stack is empty
+        if (!undoStack.length) {document.getElementById("undo").setAttribute("disabled","")}
 
+        // remove resize boxes if there are any
+        if (resizeBoxManager.startBoxes.length) {
+            resizeBoxManager.deleteBoxes();
+        }
+    },
+    redo: function() {
+        if (redoStack.length) {
+            let undoItem = [];
+            let pastColors = redoStack.pop();
+            // revert every pixel to its previous color
+            for (let i = 0; i < pastColors.length; i ++) {
+                let [x, y] = [pastColors[i][0][0], pastColors[i][0][1]];
+                let pixel = document.getElementById("P" + x + "_" + y);
+                undoItem.push([[x, y], pixel.style.backgroundColor]);
+                pixel.style.backgroundColor = pastColors[i][1];
+            }
+            // add to undo stack the item that was redoed
+            undoStack.push(undoItem);
+            document.getElementById("undo").removeAttribute("disabled");
+        }
+        // disable redo button if redo stack is empty
+        if (!redoStack.length) {document.getElementById("redo").setAttribute("disabled","");}
+    }
+};
+
+// sets up a grid and fills it with "pixel" divs
 function setupDrawingArea() {
     // add all mouse events to the drawing area
-    let gridDiv = document.getElementById("drawing-area");
-    gridDiv.addEventListener("mousemove", processDrawingAreaMouseEvent, true);
-    gridDiv.addEventListener("mousedown", processDrawingAreaMouseEvent, true);
-    gridDiv.addEventListener("mouseup", processDrawingAreaMouseEvent, true);
+    const gridDiv = document.getElementById("drawing-area");
+    gridDiv.addEventListener("mousemove", eventManager.processDrawingAreaEvent, true);
+    gridDiv.addEventListener("mousedown", eventManager.processDrawingAreaEvent, true);
+    gridDiv.addEventListener("mouseup", eventManager.processDrawingAreaEvent, true);
     
     // set drawing area as a grid
     const width  = pixelSize * (xMax + 1);
@@ -348,3 +410,6 @@ function setupDrawingArea() {
 
 // wait until document finished loading before setting up drawing area
 document.addEventListener('DOMContentLoaded', setupDrawingArea());
+
+
+
