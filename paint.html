@@ -5,16 +5,18 @@
 
 
 <body >
-    <label for="pen">
-        <input id="pen" type="radio" name="tool" value="pen" checked="checked">Pen
-    </label>
-    <label for="line">
-        <input type="radio" name="tool" value="line">Line
-    </label>
+    <div id="tools-container" onchange="eventManager.processToolEvent()">
+        <label for="pen" >
+            <input id="pen" type="radio" name="tool" value="pen" checked="checked">Pen
+        </label>
+        <label for="line">
+            <input id="line" type="radio" name="tool" value="line">Line
+        </label>
+    </div>
     <button type="button" id="undo" onclick="undo()" disabled>Undo</button>
     <button type="button" id="redo" onclick="redo()" disabled>Redo</button>
     
-    <div id="drawing-area" ondrag="fase"> </div>
+    <div id="drawing-area"> </div>
     <div id="coordinates-container">
         <p id="coordinates">X:_ Y:_</p>
     </div>
