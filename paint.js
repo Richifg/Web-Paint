@@ -65,6 +65,7 @@ const eventManager = {
                             resizeBoxManager.deleteBoxes();
                             drawingManager.pastColors = [];
                             drawingManager.start = [x, y];
+                            drawingManager.end = [x, y];
                         }
                         break;
                     case "mousemove":
@@ -73,8 +74,11 @@ const eventManager = {
                         }
                         break;
                     case "mouseup":
-                        resizeBoxManager.createBoxes(drawingManager.start, "start");
-                        resizeBoxManager.createBoxes(drawingManager.end, "end");
+                        // resize boxes are only neccesary if a figure was drawn
+                        if (drawingManager.start.toString() !== drawingManager.end.toString()) {
+                            resizeBoxManager.createBoxes(drawingManager.start, "start");
+                            resizeBoxManager.createBoxes(drawingManager.end, "end");
+                        }
                         break;
                 }
                 break;
@@ -184,12 +188,15 @@ const drawingManager = {
         // calculate all the coordinates of the new figure
         let coordinates = []
         switch (tool) {
-            case "line":
-                coordinates = this.getLineCoordinates();
-                break;
             case "square":
+            // squares may be lines if cursor movement is completely vertical/horizontal
+            if (this.start[0] !== this.end[0] && this.start[1] !== this.end[1]) {
                 coordinates = this.getSquareCoordinates();
                 break;
+            }
+            case "line":
+                coordinates = this.getLineCoordinates();
+                break;        
             case "circle":
                 coordinates = this.getCircleCoordinates();
         }
@@ -213,9 +220,7 @@ const drawingManager = {
     },
     
     // geometry function
-    getLineCoordinates: function() {        
-        const [start, end] = [this.start, this.end]
-              
+    getLineCoordinates: function(start = this.start, end = this.end) {              
         // if called with same start/end then just return
         if (start.toString() === end.toString()) {
             return [start]
@@ -230,7 +235,7 @@ const drawingManager = {
         const b = y1 - m * x1;
 
         // cycle through the line getting the pixel coordinates 
-        let lineCoords = [[start[0], start[1]], [end[0], end[1]]];
+        let lineCoords = [[start[0], start[1]]];
         const step = x1 <= x2 ? 1 : -1;
         for (let x = x1 + step; x != x2; x += step) {
             let y = Math.round(m * x + b);
@@ -239,7 +244,26 @@ const drawingManager = {
                 let foo;
             }
         }
+        lineCoords.push([end[0], end[1]]);
         return lineCoords;
+    },
+    
+    getSquareCoordinates: function() {
+        // get square coordinates from drawing start and end points
+        // x1y1-----x2y1
+        // |           |
+        // |           |
+        // x1y2-----x2y2
+        const [x1, y1, x2, y2] = [this.start[0], this.start[1], this.end[0], this.end[1]];
+                
+        // vertical line coordinates are sliced to avoid repeated corner coordinates
+        let coordinates = [].concat(
+            this.getLineCoordinates([x1, y1], [x2, y1]),
+            this.getLineCoordinates([x2, y2], [x1, y2]),
+            this.getLineCoordinates([x1, y1], [x1, y2]).slice(1,-1),
+            this.getLineCoordinates([x2, y2], [x2, y1]).slice(1,-1)            
+            );
+        return coordinates;
     },
 };
 
@@ -268,8 +292,8 @@ const resizeBoxManager = {
     
     // list of the current active resize boxes
     startBoxes: [],
-    endBoxes: [],
     
+    endBoxes: [],
     
     // resize box functions
     createBoxes: function(coordinates, point) {
@@ -297,7 +321,8 @@ const resizeBoxManager = {
             }
             i++;
         })
-    },    
+    },   
+    
     moveBoxes: function (point) {
         // check which point's boxes have to be moved
         const [x, y] = point == "start" ? [drawingManager.start[0], drawingManager.start[1]] : 
@@ -315,16 +340,22 @@ const resizeBoxManager = {
             }
         }
     },
+    
     deleteBoxes: function() {
+        // lists are clean separately because start and end may have different number of boxes
+        // due to start and end points near corners
         for (let i = 0; i < this.startBoxes.length; i++){
             if (this.startBoxes[i].parentElement) {
                 this.startBoxes[i].parentElement.removeChild(this.startBoxes[i]);
             }
+        }
+        this.startBoxes = [];
+        
+        for (let i = 0; i < this.endBoxes.length; i++){
             if (this.endBoxes[i].parentElement) {
                 this.endBoxes[i].parentElement.removeChild(this.endBoxes[i]);        
             }
         }
-        this.startBoxes = [];
         this.endBoxes = [];
     }
 };

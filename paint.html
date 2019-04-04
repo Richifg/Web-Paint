@@ -12,9 +12,12 @@
         <label for="line">
             <input id="line" type="radio" name="tool" value="line">Line
         </label>
+        <label for="square">
+            <input id="square" type="radio" name="tool" value="square">Square
+        </label>
     </div>
-    <button type="button" id="undo" onclick="undo()" disabled>Undo</button>
-    <button type="button" id="redo" onclick="redo()" disabled>Redo</button>
+    <button id="undo" type="button" onclick="undo()" disabled>Undo</button>
+    <button id="redo" type="button" onclick="redo()" disabled>Redo</button>
     
     <div id="drawing-area"> </div>
     <div id="coordinates-container">
