@@ -3,7 +3,6 @@
     <link rel="stylesheet" type="text/css" href="paint.css">
 </head>
 
-
 <body >
     <div id="tools-container" onchange="eventManager.processToolEvent()">
         <label for="pen" >
@@ -19,13 +18,15 @@
             <input id="circle" type="radio" name="tool" value="circle">Circle
         </label>
     </div>
-    <button id="undo" type="button" onclick="undo()" disabled>Undo</button>
-    <button id="redo" type="button" onclick="redo()" disabled>Redo</button>
+    
+    <button id="undo" type="button" onclick="undoRedoManager.undo()" disabled>Undo</button>
+    <button id="redo" type="button" onclick="undoRedoManager.redo()" disabled>Redo</button>
     
     <div id="drawing-area"> </div>
     <div id="coordinates-container">
         <p id="coordinates">X:_ Y:_</p>
     </div>
+
 </body>
 <script src="paint.js"></script>
 

@@ -26,16 +26,17 @@ const eventManager = {
         switch (em.state) {                
             // paint state is only affected by mousedown events
             case "paint":                
-                if (event.state === "mousedown") { 
+                if (event.state === "mousedown") {                     
                     drawingManager.drawPaint();
                     undoRedoManager.addUndo(drawingManager.pastColors);
+                    drawingManage.pastColors = [];
                 }
                 break;
                 
             // pen state requires careful order of actions due to "cursor jumps"
             case "pen":
                 switch (event.type) { 
-                    case "mousedown":
+                    case "mousedown":                        
                         drawingManager.start = [x, y];
                         drawingManager.drawPen([x, y]);
                         break;
@@ -48,6 +49,7 @@ const eventManager = {
                     case "mouseup":
                         drawingManager.drawPen([x, y]);
                         undoRedoManager.addUndo(drawingManager.pastColors);
+                        drawingManager.pastColors = [];
                         break;
                 }
                 break;
@@ -61,11 +63,13 @@ const eventManager = {
                         if (startOrEnd) {
                             em.point2edit = startOrEnd;
                             em.state = "resize";
+                            drawingManager.pastColors = undoRedoManager.removeUndo();
                         } else {
-                            resizeBoxManager.deleteBoxes();
                             drawingManager.pastColors = [];
                             drawingManager.start = [x, y];
                             drawingManager.end = [x, y];
+                            resizeBoxManager.deleteBoxes();
+                            
                         }
                         break;
                     case "mousemove":
@@ -78,6 +82,8 @@ const eventManager = {
                         if (drawingManager.start.toString() !== drawingManager.end.toString()) {
                             resizeBoxManager.createBoxes(drawingManager.start, "start");
                             resizeBoxManager.createBoxes(drawingManager.end, "end");
+                            undoRedoManager.addUndo(drawingManager.pastColors);
+                            drawingManager.pastColors = [];
                         }
                         break;
                 }
@@ -95,6 +101,7 @@ const eventManager = {
                     case "mouseup":
                         em.state = "figure";
                         undoRedoManager.addUndo(drawingManager.pastColors);
+                        drawingManager.pastColors = [];
                         break;
                 }
                 break;
@@ -110,7 +117,6 @@ const eventManager = {
             // leaving a figure/resize event due to tool change requires some cleanup
             if (this.state === "figure" || this.state === "resize") {
                 resizeBoxManager.deleteBoxes();
-                drawingManager.pastColors = [];
             }
             
             // circle line and square all trigger the figure state
@@ -151,8 +157,19 @@ const drawingManager = {
     start: [0, 0],
     end: [0, 0],
     
-    // list of [coodinates, color] of pixels that were recently edited
+    // colors for the left and right buttons
+    primary: "black",
+    secondary: "white",
+    
+    // list of [pixelCoodinates, color] that were recently edited
     pastColors: [],
+    // function to add items to pastColors avoiding coordinate repeats
+    addPastColors: function (coordinates, color) {
+        const strPastColors = this.pastColors.join("],[");
+        if (strPastColors.search(coordinates.toString()) === -1){
+            this.pastColors.push([coordinates, color]);
+        }
+    },
     
     // tool functions
     drawPaint: function(coordinates){},   
@@ -168,8 +185,8 @@ const drawingManager = {
             // get the new pixel to color
             const pixel = document.getElementById("P" + coordinates[0] + "_" + coordinates[1]);
             if (pixel) {            
-                this.pastColors.push([coordinates, pixel.style.backgroundColor]);
-                pixel.style.backgroundColor = "black";
+                this.addPastColors(coordinates, pixel.style.backgroundColor);
+                pixel.style.backgroundColor = this.primary;
                 this.end = [...coordinates];
             }
         }
@@ -208,9 +225,9 @@ const drawingManager = {
         // color each coordinate
          for (let i = 0; i < coordinates.length; i++) {
             let [x, y] = [coordinates[i][0], coordinates[i][1]]; 
-            let pixel = document.getElementById("P" + x + "_" + y);
-            this.pastColors.push([[x, y], pixel.style.backgroundColor])
-            pixel.style.backgroundColor = "black";
+            let pixel = document.getElementById("P" + x + "_" + y);             
+            this.addPastColors([x, y], pixel.style.backgroundColor);
+            pixel.style.backgroundColor = this.primary;
         }            
     },  
     
@@ -410,19 +427,33 @@ const resizeBoxManager = {
     }
 };
 
-// nothing yet
+// manages the undo/redo stacks and functions
 const undoRedoManager = {
     undoStack: [],
     redoStack: [],
+    
     addUndo: function(item) {
-        this.undoStack.push(item);
-        document.getElementById("undo").removeAttribute("disabled");
+        // clean redo stack and disable button
+        this.redoStack = [];
+        document.getElementById("redo").setAttribute("disabled","");
         
+        // add to undo stack and enable button
+        this.undoStack.push(item);
+        document.getElementById("undo").removeAttribute("disabled");        
     },
+    
+    removeUndo: function() {
+        let undoItem = this.undoStack.pop();
+        if (!this.undoStack.length) {
+            document.getElementById("undo").setAttribute("disabled","");
+        }
+        return undoItem;        
+    },
+    
     undo: function() {
-        if (undoStack.length) {
+        if (this.undoStack.length) {
             let redoItem = [];
-            let pastColors = undoStack.pop();
+            let pastColors = this.undoStack.pop();
             // revert every pixel to its previous color
             for (let i = 0; i < pastColors.length; i ++){
                 let [x, y] = [pastColors[i][0][0], pastColors[i][0][1]];
@@ -431,21 +462,22 @@ const undoRedoManager = {
                 pixel.style.backgroundColor = pastColors[i][1];
             }
             // add to redo stack the item that was just undoed
-            redoStack.push(redoItem);
+            this.redoStack.push(redoItem);
             document.getElementById("redo").removeAttribute("disabled");
         }
         // disable undo button if undo stack is empty
-        if (!undoStack.length) {document.getElementById("undo").setAttribute("disabled","")}
+        if (!this.undoStack.length) {document.getElementById("undo").setAttribute("disabled","")}
 
         // remove resize boxes if there are any
         if (resizeBoxManager.startBoxes.length) {
-            resizeBoxManager.deleteBoxes();
+            resizeBoxManager.deleteBoxes(); 
         }
     },
+    
     redo: function() {
-        if (redoStack.length) {
+        if (this.redoStack.length) {
             let undoItem = [];
-            let pastColors = redoStack.pop();
+            let pastColors = this.redoStack.pop();
             // revert every pixel to its previous color
             for (let i = 0; i < pastColors.length; i ++) {
                 let [x, y] = [pastColors[i][0][0], pastColors[i][0][1]];
@@ -454,11 +486,11 @@ const undoRedoManager = {
                 pixel.style.backgroundColor = pastColors[i][1];
             }
             // add to undo stack the item that was redoed
-            undoStack.push(undoItem);
+            this.undoStack.push(undoItem);
             document.getElementById("undo").removeAttribute("disabled");
         }
         // disable redo button if redo stack is empty
-        if (!redoStack.length) {document.getElementById("redo").setAttribute("disabled","");}
+        if (!this.redoStack.length) {document.getElementById("redo").setAttribute("disabled","");}
     }
 };
 
