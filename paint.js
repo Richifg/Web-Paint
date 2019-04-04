@@ -188,6 +188,12 @@ const drawingManager = {
         // calculate all the coordinates of the new figure
         let coordinates = []
         switch (tool) {
+            case "circle":
+            // circle may also be lines if cursor movement is completely vertical/horizontal
+            if (this.start[0] !== this.end[0] && this.start[1] !== this.end[1]) {
+                coordinates = this.getCircleCoordinates();
+                break;
+            }
             case "square":
             // squares may be lines if cursor movement is completely vertical/horizontal
             if (this.start[0] !== this.end[0] && this.start[1] !== this.end[1]) {
@@ -196,9 +202,7 @@ const drawingManager = {
             }
             case "line":
                 coordinates = this.getLineCoordinates();
-                break;        
-            case "circle":
-                coordinates = this.getCircleCoordinates();
+                break;            
         }
         
         // color each coordinate
@@ -223,7 +227,7 @@ const drawingManager = {
     getLineCoordinates: function(start = this.start, end = this.end) {              
         // if called with same start/end then just return
         if (start.toString() === end.toString()) {
-            return [start]
+            return [start];
         }
 
         // find the axis with the most change X or Y
@@ -240,10 +244,7 @@ const drawingManager = {
         for (let x = x1 + step; x != x2; x += step) {
             let y = Math.round(m * x + b);
             lineCoords.push( bigAxis == 0 ? [x, y] : [y, x]); 
-            if (lineCoords.length > 200) {
-                let foo;
-            }
-        }
+        };
         lineCoords.push([end[0], end[1]]);
         return lineCoords;
     },
@@ -263,6 +264,55 @@ const drawingManager = {
             this.getLineCoordinates([x1, y1], [x1, y2]).slice(1,-1),
             this.getLineCoordinates([x2, y2], [x2, y1]).slice(1,-1)            
             );
+        return coordinates;
+    },
+    
+    getCircleCoordinates: function() {                        
+        const [start, end] = [this.start, this.end];
+        
+        // get circle equation parameters
+        // (x-h)^2/a^2 + (y-k)^2/b^2  =  1        
+        const [h, k, a, b] = [
+            (start[0] + end[0]) / 2,
+            (start[1] + end[1]) / 2,
+            Math.abs(start[0] - end[0]) / 2,
+            Math.abs(start[1] - end[1]) / 2
+        ];
+                
+        //cycle through all x coordinates finding the y's
+        const coordinates = [];
+        let step = start[0] <= end[0] ? 1 : -1;
+        for (let x = start[0]; x !== end[0] + step; x += step) {
+            const y1 = Math.round(
+                k + Math.sqrt((1 - ((x - h)**2) / (a**2)) * b**2)
+            );
+             const y2 = Math.round(
+                k - Math.sqrt((1 - ((x - h)**2) / (a**2)) * b**2)
+            );
+            coordinates.push([x, y1]);
+            // make sure no repeats are pushed
+            if (coordinates.join("$").indexOf(x + "," + y2) === -1) {
+                coordinates.push([x, y2]);
+            };
+        };
+                
+        // repeat cycle with y to fill out the gaps
+        step = start[1] <= end[1] ? 1 : -1;
+        for (let y = start[1]; y !== end[1] + step; y += step) {
+            const x1 = Math.round(
+                h + Math.sqrt((1 - ((y - k)**2) / (b**2)) * a**2) 
+            );
+             const x2 = Math.round(
+                h - Math.sqrt((1 - ((y - k)**2) / (b**2)) * a**2)
+            );
+            // make sure no repeats are pushed
+            if (coordinates.join("$").indexOf(x1 + "," + y) === -1) {
+                coordinates.push([x1, y]);
+            };
+            if (coordinates.join("$").indexOf(x2 + "," + y) === -1) {
+                coordinates.push([x2, y]);
+            };
+        };
         return coordinates;
     },
 };
