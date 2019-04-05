@@ -1,6 +1,10 @@
   
-<head>        
+<head>
     <link rel="stylesheet" type="text/css" href="paint.css">
+    <title>Basic Image Editor. Online Paint.</title>
+    <meta name="description" content="Basic online image editor with some of the functions of MSPaint but on the web!">
+    <meta name="author" content="Ricardo Fernandez">
+    <meta name="keywords" content="MSPaint,paint,image,editor,online">        
 </head>
 
 <body >
@@ -18,10 +22,10 @@
             <input id="circle" type="radio" name="tool" value="circle">Circle
         </label>
     </div>
-    
+
     <button id="undo" type="button" onclick="undoRedoManager.undo()" disabled>Undo</button>
     <button id="redo" type="button" onclick="undoRedoManager.redo()" disabled>Redo</button>
-    
+
     <div id="drawing-area"> </div>
     <div id="coordinates-container">
         <p id="coordinates">X:_ Y:_</p>
