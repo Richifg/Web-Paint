@@ -1,11 +1,11 @@
 "use strict";
 // size of the drawing area and size of "pixel" divs
-const [xMax, yMax, pixelSize] = [175, 175, 3];
+const [xMax, yMax, pixelSize] =[175, 175, 3];
 
 // works as a state machine using mouse events as inputs
 // interacts with all the other managers
 const eventManager = {
-    // pen is the selected tool by default
+    // pen is the selected tool by defaults
     state: "pen",        
     
     // keeps track of current tool which can differ from current state
